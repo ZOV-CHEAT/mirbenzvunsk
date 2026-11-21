@@ -1,0 +1,520 @@
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+<meta charset="UTF-8">
+<title>Мырбензвукенск — Мыргунская звуковая библиотека</title>
+<style>
+  body { background:#0d0d0f; color:#ddd; font-family:monospace;
+         display:flex; flex-direction:column; align-items:center;
+         padding:20px; min-height:100vh; }
+  h1 { font-size:14px; letter-spacing:2px; color:#777; margin:0 0 4px; text-align:center; }
+  h2 { font-size:11px; letter-spacing:1px; color:#5a5a66; margin:0 0 14px;
+       text-align:center; font-weight:normal; }
+  .id-wrap { position:relative; max-width:520px; width:100%; margin:8px 0; }
+  .id-display { font-size:11px; color:#6cf; word-break:break-all;
+    text-align:center; padding:8px; padding-right:100px;
+    background:#141418; border:1px solid #2a2a30; border-radius:6px; line-height:1.5;
+    max-height:160px; overflow-y:auto; }
+  .id-actions { position:absolute; top:6px; right:6px; display:flex; gap:4px; }
+  .id-actions button { padding:4px 8px; font-size:10px; border-radius:4px; }
+  #toggleMore { font-size:10px; color:#6cf; background:none; border:none;
+    cursor:pointer; padding:4px; text-align:center; width:100%; }
+  #toggleMore:hover { color:#9df; }
+  .viz { border:2px solid #2a2a30; border-radius:8px;
+         width:520px; height:180px; background:#000; }
+  .controls { display:flex; gap:10px; margin:14px 0; flex-wrap:wrap; justify-content:center; }
+  button { background:#1a1a20; color:#6cf; border:1px solid #333;
+           padding:10px 18px; font-family:monospace; font-size:13px;
+           cursor:pointer; border-radius:6px; transition:all .15s; }
+  button:hover { background:#26262e; border-color:#6cf; }
+  .tools { display:flex; flex-direction:column; gap:10px; width:520px; margin-top:6px; }
+  .tools input[type=text] { background:#141418; color:#6cf; border:1px solid #2a2a30;
+    padding:9px; font-family:monospace; font-size:11px; border-radius:6px; }
+  .tools input[type=file] { color:#777; font-size:11px; }
+  .tools button { padding:8px; font-size:12px; }
+  .row { display:flex; gap:8px; align-items:center; }
+  .row label { font-size:11px; color:#888; min-width:160px; }
+  .row input[type=range] { flex:1; accent-color:#6cf; }
+  .row span { font-size:11px; color:#6cf; min-width:80px; text-align:right; }
+  #status { font-size:11px; color:#888; min-height:15px; text-align:center; }
+  .paste-zone { width:520px; margin-top:6px; border:2px dashed #2a2a30;
+    border-radius:8px; padding:16px; text-align:center; color:#555;
+    font-size:11px; transition:all .15s; cursor:text; }
+  .paste-zone.dragover, .paste-zone:focus {
+    border-color:#6cf; color:#6cf; outline:none; background:#141418; }
+  .paste-zone.active { border-color:#4a4; color:#4a4; }
+  audio { width:520px; margin-top:8px; filter:invert(0.8) hue-rotate(180deg); }
+  .hint { font-size:10px; color:#5a5a66; text-align:center; width:520px; }
+  footer { font-size:9px; color:#444; margin-top:20px; text-align:center; letter-spacing:1px; }
+</style>
+</head>
+<body>
+
+<h1>МЫРБЕНЗВУКЕНСК</h1>
+<h2>— Мыргунская звуковая библиотека —</h2>
+
+<div class="id-wrap">
+  <div class="id-display" id="idDisplay">#...</div>
+  <div class="id-actions">
+    <button id="copyBtn" onclick="copyId()">КОПИРОВАТЬ</button>
+  </div>
+</div>
+<button id="toggleMore" onclick="toggleFullId()" style="display:none;">ПОКАЗАТЬ БОЛЬШЕ</button>
+
+<canvas id="viz" class="viz" width="520" height="180"></canvas>
+
+<audio id="player" controls></audio>
+
+<div class="controls">
+  <button onclick="prevId()">◀ НАЗАД</button>
+  <button onclick="playCurrent()">▶ ИГРАТЬ</button>
+  <button onclick="nextId()">ВПЕРЁД ▶</button>
+  <button onclick="randomId()">🎲 СЛУЧАЙНЫЙ</button>
+</div>
+
+<div class="tools">
+  <div class="row">
+    <label>Сжатие (качество)</label>
+    <input type="range" id="qualityRange" min="0" max="100" value="50"
+           oninput="onQualityChange()">
+    <span id="qualityLabel">50%</span>
+  </div>
+  <div class="hint" id="qualityHint"></div>
+
+  <input type="text" id="idInput" placeholder="Вставь ID">
+  <button onclick="findById()">НАЙТИ ЗВУК ПО ID</button>
+  <input type="file" id="fileInput" accept="audio/*">
+  <button onclick="findIdByAudio()">ПОЛУЧИТЬ ID ЭТОГО АУДИО</button>
+  <div id="pasteZone" class="paste-zone" tabindex="0">
+    Ctrl+V — вставить аудио из буфера · или перетащи файл сюда
+  </div>
+  <div id="status"></div>
+</div>
+
+<footer>МЫРГУН · SOUND LIBRARY</footer>
+
+<script>
+const LET_LATIN = "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz";
+const LET_CYRILLIC =
+  "АБВГДЕЁЖЗИЙКЛМНОПРСТУФХЦЧШЩЪЫЬЭЮЯ" +
+  "абвгдеёжзийклмнопрстуфхцчшщъыьэюя" +
+  "ҐґЄєІіЇїЎўЈјЉљЊњЋћЏџЃѓЌќЅѕ";
+const LET_GREEK = "ΑΒΓΔΕΖΗΘΙΚΛΜΝΞΟΠΡΣΤΥΦΧΨΩαβγδεζηθικλμνξοπρστυφχψω";
+const LET_ARMENIAN =
+  "ԱԲԳԴԵԶԷԸԹԺԻԼԽԾԿՀՁՂՃՄՅՆՇՈՉՊՋՌՍՎՏՐՑՒՓՔՕՖ" +
+  "աբգդեզէըթժիլխծկհձղճմյնշոչպջռսվտրցւփքօֆ";
+const LET_GEORGIAN = "აბგდევზთიკლმნოპჟრსტუფქღყშჩცძწჭხჯჰ";
+const LET_HEBREW = "אבגדהוזחטיכלמנסעפצקרשת";
+
+const LET_ALL = LET_LATIN + LET_CYRILLIC + LET_GREEK + LET_ARMENIAN + LET_GEORGIAN + LET_HEBREW;
+const DIGITS = "0123456789";
+const SIGNS  = "+-*/=<>?!@#$%&";
+const ALL    = LET_ALL + DIGITS + SIGNS;
+const N_ALL  = ALL.length;
+const BITS_CHUNK = Math.floor(Math.log2(N_ALL));
+
+const ID_PREVIEW_LEN = 256;
+let currentId = "";
+let showFullId = false;
+let quality = 50;
+let audioCtx = null;
+
+let srcSamples = null;
+let srcSr = 8000;
+let srcDuration = 0;
+
+function framesPerSecond() {
+  const t = quality / 100;
+  return Math.max(8, Math.round(8 * Math.pow(500, t)));
+}
+
+function samplesToNibbles(samples, sr, fps) {
+  const duration = samples.length / sr;
+  const nFrames = Math.max(1, Math.round(duration * fps));
+  const out = new Array(nFrames);
+  const samplesPerFrame = samples.length / nFrames;
+  for (let f = 0; f < nFrames; f++) {
+    const s0 = Math.floor(f * samplesPerFrame);
+    const s1 = Math.max(s0 + 1, Math.floor((f + 1) * samplesPerFrame));
+    let sum = 0;
+    for (let i = s0; i < s1 && i < samples.length; i++) sum += samples[i];
+    const avg = sum / (s1 - s0);
+    out[f] = Math.max(0, Math.min(15, Math.round((avg + 1) * 7.5)));
+  }
+  return out;
+}
+
+function nibblesToSamples(nibbles, sr, duration) {
+  const nFrames = nibbles.length;
+  const totalSamples = Math.max(1, Math.round(duration * sr));
+  const out = new Float32Array(totalSamples);
+  if (nFrames === 0) return out;
+  if (nFrames === 1) {
+    out.fill((nibbles[0] / 15) * 2 - 1);
+    return out;
+  }
+  const positions = new Float64Array(nFrames);
+  for (let i = 0; i < nFrames; i++) positions[i] = i * (totalSamples - 1) / (nFrames - 1);
+  const values = new Float64Array(nFrames);
+  for (let i = 0; i < nFrames; i++) values[i] = (nibbles[i] / 15) * 2 - 1;
+  let seg = 0;
+  for (let i = 0; i < totalSamples; i++) {
+    while (seg < nFrames - 2 && positions[seg + 1] < i) seg++;
+    const p0 = positions[seg];
+    const p1 = positions[seg + 1];
+    const v0 = values[seg];
+    const v1 = values[seg + 1];
+    const t = (i - p0) / Math.max(1e-9, p1 - p0);
+    out[i] = v0 * (1 - t) + v1 * t;
+  }
+  return out;
+}
+
+function nibblesToId(nibbles) {
+  let big = 0n;
+  for (const n of nibbles) big = (big << 4n) | BigInt(n & 0xF);
+  const totalBits = nibbles.length * 4;
+  const nChunks = Math.ceil(totalBits / BITS_CHUNK);
+  const pad = nChunks * BITS_CHUNK - totalBits;
+  big = big << BigInt(pad);
+  const chars = new Array(nChunks);
+  const mask = (1n << BigInt(BITS_CHUNK)) - 1n;
+  for (let i = nChunks - 1; i >= 0; i--) {
+    const chunk = Number(big & mask);
+    big >>= BigInt(BITS_CHUNK);
+    chars[i] = ALL[chunk % N_ALL];
+  }
+  return chars.join('');
+}
+
+function idToNibbles(id) {
+  let big = 0n;
+  for (const ch of id) {
+    const v = ALL.indexOf(ch);
+    if (v < 0) return null;
+    big = (big << BigInt(BITS_CHUNK)) | BigInt(v);
+  }
+  const totalBits = id.length * BITS_CHUNK;
+  const nNibbles = Math.floor(totalBits / 4);
+  const bigShifted = big >> BigInt(totalBits - nNibbles * 4);
+  let b = bigShifted;
+  const nibbles = new Array(nNibbles);
+  for (let i = nNibbles - 1; i >= 0; i--) {
+    nibbles[i] = Number(b & 0xFn);
+    b >>= 4n;
+  }
+  return nibbles;
+}
+
+function drawWave(samples, sr) {
+  const c = document.getElementById('viz');
+  const ctx = c.getContext('2d');
+  const W = c.width, H = c.height;
+  ctx.fillStyle = '#000';
+  ctx.fillRect(0, 0, W, H);
+  if (!samples || samples.length === 0) return;
+  ctx.strokeStyle = '#1a1a20';
+  ctx.beginPath();
+  for (let x = 0; x <= W; x += W / 8) { ctx.moveTo(x, 0); ctx.lineTo(x, H); }
+  ctx.moveTo(0, H / 2); ctx.lineTo(W, H / 2);
+  ctx.stroke();
+  ctx.strokeStyle = '#6cf';
+  ctx.lineWidth = 1;
+  ctx.beginPath();
+  const n = samples.length;
+  for (let x = 0; x < W; x++) {
+    const i = Math.floor(x * n / W);
+    const v = samples[i] || 0;
+    const y = H / 2 - v * (H / 2 - 4);
+    if (x === 0) ctx.moveTo(x, y); else ctx.lineTo(x, y);
+  }
+  ctx.stroke();
+}
+
+function encodeWav(samples, sr) {
+  const n = samples.length;
+  const buf = new ArrayBuffer(44 + n * 2);
+  const v = new DataView(buf);
+  const ws = (o, s) => { for (let i = 0; i < s.length; i++) v.setUint8(o + i, s.charCodeAt(i)); };
+  ws(0, 'RIFF');
+  v.setUint32(4, 36 + n * 2, true);
+  ws(8, 'WAVE');
+  ws(12, 'fmt ');
+  v.setUint32(16, 16, true);
+  v.setUint16(20, 1, true);
+  v.setUint16(22, 1, true);
+  v.setUint32(24, sr, true);
+  v.setUint32(28, sr * 2, true);
+  v.setUint16(32, 2, true);
+  v.setUint16(34, 16, true);
+  ws(36, 'data');
+  v.setUint32(40, n * 2, true);
+  let off = 44;
+  for (let i = 0; i < n; i++) {
+    const s = Math.max(-1, Math.min(1, samples[i]));
+    v.setInt16(off, s < 0 ? s * 0x8000 : s * 0x7fff, true);
+    off += 2;
+  }
+  return buf;
+}
+
+function playSamples(samples, sr, label) {
+  if (!audioCtx) audioCtx = new (window.AudioContext || window.webkitAudioContext)();
+  audioCtx.resume();
+  drawWave(samples, sr);
+  const wav = encodeWav(samples, sr);
+  const blob = new Blob([wav], { type: 'audio/wav' });
+  const url = URL.createObjectURL(blob);
+  const player = document.getElementById('player');
+  player.src = url;
+  player.play().catch(()=>{});
+  setStatus(label || ('Играю · ' + samples.length + ' сэмплов @ ' + sr + ' Гц'));
+}
+
+function setStatus(m) { document.getElementById('status').textContent = m; }
+
+function updateIdDisplay() {
+  const el = document.getElementById('idDisplay');
+  const toggle = document.getElementById('toggleMore');
+  const full = '#' + currentId;
+  if (currentId.length <= ID_PREVIEW_LEN) {
+    el.textContent = full;
+    toggle.style.display = 'none';
+    showFullId = false;
+    return;
+  }
+  if (showFullId) {
+    el.textContent = full;
+    toggle.textContent = 'СКРЫТЬ';
+  } else {
+    el.textContent = full.slice(0, ID_PREVIEW_LEN) + '…';
+    toggle.textContent = 'ПОКАЗАТЬ БОЛЬШЕ (' + currentId.length + ' символов)';
+  }
+  toggle.style.display = 'block';
+}
+
+function toggleFullId() { showFullId = !showFullId; updateIdDisplay(); }
+
+function copyId() {
+  if (!currentId) { setStatus('Нет ID'); return; }
+  const done = () => setStatus('ID скопирован (' + currentId.length + ' символов)');
+  if (navigator.clipboard && navigator.clipboard.writeText) {
+    navigator.clipboard.writeText(currentId).then(done, () => fallbackCopy(currentId));
+  } else fallbackCopy(currentId);
+}
+function fallbackCopy(text) {
+  const ta = document.createElement('textarea');
+  ta.value = text; ta.style.position = 'fixed'; ta.style.opacity = '0';
+  document.body.appendChild(ta); ta.select();
+  try { document.execCommand('copy'); setStatus('ID скопирован'); }
+  catch (e) { setStatus('Не удалось скопировать'); }
+  document.body.removeChild(ta);
+}
+
+function onQualityChange() {
+  quality = parseInt(document.getElementById('qualityRange').value, 10);
+  document.getElementById('qualityLabel').textContent = quality + '%';
+  const fps = framesPerSecond();
+  document.getElementById('qualityHint').textContent =
+    'Кадров/сек: ' + fps + ' · ' +
+    (quality < 25 ? 'максимум сжатия' :
+     quality < 60 ? 'среднее качество' :
+     quality < 85 ? 'хорошее качество' : 'почти 1-в-1');
+  if (srcSamples && srcSr) rebuildFromSamples(srcSamples, srcSr);
+}
+
+function rebuildFromSamples(samples, sr) {
+  const fps = framesPerSecond();
+  const nibbles = samplesToNibbles(samples, sr, fps);
+  currentId = nibblesToId(nibbles);
+  showFullId = false;
+  updateIdDisplay();
+  srcDuration = samples.length / sr;
+  const restored = nibblesToSamples(nibbles, sr, srcDuration);
+  playSamples(restored, sr,
+    'Сжато: ' + samples.length + ' сэмплов → ' + nibbles.length + ' кадров → ' +
+    currentId.length + ' символов');
+}
+
+function randomId() {
+  const duration = srcDuration || 1;
+  const fps = framesPerSecond();
+  const nFrames = Math.max(1, Math.round(duration * fps));
+  const nibbles = new Array(nFrames);
+  for (let i = 0; i < nFrames; i++) nibbles[i] = Math.floor(Math.random() * 16);
+  currentId = nibblesToId(nibbles);
+  showFullId = false;
+  updateIdDisplay();
+  const samples = nibblesToSamples(nibbles, srcSr || 8000, duration);
+  playSamples(samples, srcSr || 8000, 'Случайный ID · ' + nFrames + ' кадров');
+}
+
+function nextId() {
+  if (!currentId) { randomId(); return; }
+  const nibbles = idToNibbles(currentId);
+  if (!nibbles) { setStatus('Некорректный ID'); return; }
+  let i = nibbles.length - 1;
+  while (i >= 0) {
+    if (nibbles[i] < 15) { nibbles[i]++; break; }
+    nibbles[i] = 0; i--;
+  }
+  currentId = nibblesToId(nibbles);
+  showFullId = false;
+  updateIdDisplay();
+  playCurrent();
+}
+
+function prevId() {
+  if (!currentId) { randomId(); return; }
+  const nibbles = idToNibbles(currentId);
+  if (!nibbles) { setStatus('Некорректный ID'); return; }
+  let i = nibbles.length - 1;
+  while (i >= 0) {
+    if (nibbles[i] > 0) { nibbles[i]--; break; }
+    nibbles[i] = 15; i--;
+  }
+  currentId = nibblesToId(nibbles);
+  showFullId = false;
+  updateIdDisplay();
+  playCurrent();
+}
+
+function findById() {
+  const raw = document.getElementById('idInput').value.trim().replace(/^#/, '');
+  if (!raw) { setStatus('ID пустой'); return; }
+  for (const ch of raw) {
+    if (ALL.indexOf(ch) < 0) { setStatus('Недопустимый символ: ' + ch); return; }
+  }
+  currentId = raw;
+  showFullId = false;
+  updateIdDisplay();
+  playCurrent();
+}
+
+function playCurrent() {
+  if (!currentId) { setStatus('Нет ID'); return; }
+  const nibbles = idToNibbles(currentId);
+  if (!nibbles) { setStatus('Некорректный ID'); return; }
+  let duration = srcDuration;
+  if (!duration) {
+    const fps = framesPerSecond();
+    duration = nibbles.length / fps;
+  }
+  const sr = srcSr || 8000;
+  const samples = nibblesToSamples(nibbles, sr, duration);
+  playSamples(samples, sr, 'ID: ' + nibbles.length + ' кадров (' + currentId.length + ' символов)');
+}
+
+async function processAudioFile(file) {
+  if (!file) return;
+  if (!file.type || !file.type.startsWith('audio')) {
+    if (!/\.(mp3|wav|ogg|flac|m4a|aac|opus|webm)$/i.test(file.name)) {
+      setStatus('Это не аудио'); return;
+    }
+  }
+  setStatus('Декодирую аудио…');
+  try {
+    if (!audioCtx) audioCtx = new (window.AudioContext || window.webkitAudioContext)();
+    const arrayBuf = await file.arrayBuffer();
+    const audioBuf = await audioCtx.decodeAudioData(arrayBuf);
+    const ch0 = audioBuf.getChannelData(0);
+    let mono = ch0;
+    if (audioBuf.numberOfChannels > 1) {
+      const ch1 = audioBuf.getChannelData(1);
+      mono = new Float32Array(ch0.length);
+      for (let i = 0; i < ch0.length; i++) mono[i] = (ch0[i] + ch1[i]) / 2;
+    }
+    const targetSr = 8000;
+    let resampled;
+    if (audioBuf.sampleRate === targetSr) {
+      resampled = mono;
+    } else {
+      const ratio = audioBuf.sampleRate / targetSr;
+      const newLen = Math.max(1, Math.round(mono.length / ratio));
+      resampled = new Float32Array(newLen);
+      for (let i = 0; i < newLen; i++) {
+        const s = i * ratio;
+        const i0 = Math.floor(s);
+        const i1 = Math.min(mono.length - 1, i0 + 1);
+        const t = s - i0;
+        resampled[i] = mono[i0] * (1 - t) + mono[i1] * t;
+      }
+    }
+    srcSamples = resampled;
+    srcSr = targetSr;
+    srcDuration = resampled.length / targetSr;
+    rebuildFromSamples(resampled, targetSr);
+  } catch (e) {
+    setStatus('Ошибка декодирования: ' + e.message);
+  }
+}
+
+function findIdByAudio() {
+  const file = document.getElementById('fileInput').files[0];
+  if (!file) { setStatus('Выбери файл'); return; }
+  processAudioFile(file);
+}
+
+function handlePasteEvent(e) {
+  const items = e.clipboardData && e.clipboardData.items;
+  if (!items) return;
+  for (let i = 0; i < items.length; i++) {
+    if (items[i].type && items[i].type.startsWith('audio')) {
+      const blob = items[i].getAsFile();
+      if (!blob) continue;
+      e.preventDefault();
+      processAudioFile(blob).then(flashPasteZone);
+      return;
+    }
+  }
+  const files = e.clipboardData && e.clipboardData.files;
+  if (files && files.length) {
+    const f = files[0];
+    if (/\.(mp3|wav|ogg|flac|m4a|aac|opus|webm)$/i.test(f.name)) {
+      e.preventDefault();
+      processAudioFile(f).then(flashPasteZone);
+    }
+  }
+}
+
+function flashPasteZone() {
+  const z = document.getElementById('pasteZone');
+  z.classList.add('active');
+  setTimeout(() => z.classList.remove('active'), 600);
+}
+
+function setupPasteHandlers() {
+  const zone = document.getElementById('pasteZone');
+  document.addEventListener('paste', (e) => {
+    const t = e.target;
+    if (t && (t.tagName === 'INPUT' || t.tagName === 'TEXTAREA')) return;
+    handlePasteEvent(e);
+  });
+  zone.addEventListener('paste', handlePasteEvent);
+  zone.addEventListener('dragover', (e) => { e.preventDefault(); zone.classList.add('dragover'); });
+  zone.addEventListener('dragleave', () => zone.classList.remove('dragover'));
+  zone.addEventListener('drop', (e) => {
+    e.preventDefault();
+    zone.classList.remove('dragover');
+    const f = e.dataTransfer && e.dataTransfer.files && e.dataTransfer.files[0];
+    if (!f) return;
+    if (!f.type || !f.type.startsWith('audio')) {
+      if (!/\.(mp3|wav|ogg|flac|m4a|aac|opus|webm)$/i.test(f.name)) {
+        setStatus('Это не аудио'); return;
+      }
+    }
+    processAudioFile(f).then(flashPasteZone);
+  });
+  zone.addEventListener('click', () => zone.focus());
+}
+
+(function init() {
+  document.getElementById('idInput').placeholder = 'Вставь ID';
+  updateIdDisplay();
+  setStatus('Готов · ' + framesPerSecond() + ' fps при ' + quality + '%');
+  setupPasteHandlers();
+  onQualityChange();
+})();
+</script>
+</body>
+</html>
