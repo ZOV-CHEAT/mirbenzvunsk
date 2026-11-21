@@ -170,10 +170,20 @@ function nibblesToSamples(nibbles, sr, duration) {
   return out;
 }
 
-function nibblesToId(nibbles) {
-  let big = 0n;
+function encodeDuration(durationSec) {
+  const tenths = Math.max(1, Math.min(65535, Math.round(durationSec * 10)));
+  return tenths;
+}
+
+function decodeDuration(tenths) {
+  return tenths / 10;
+}
+
+function nibblesToId(nibbles, durationSec) {
+  const durationCode = encodeDuration(durationSec);
+  let big = BigInt(durationCode);
   for (const n of nibbles) big = (big << 4n) | BigInt(n & 0xF);
-  const totalBits = nibbles.length * 4;
+  const totalBits = 16 + nibbles.length * 4;
   const nChunks = Math.ceil(totalBits / BITS_CHUNK);
   const pad = nChunks * BITS_CHUNK - totalBits;
   big = big << BigInt(pad);
@@ -195,15 +205,21 @@ function idToNibbles(id) {
     big = (big << BigInt(BITS_CHUNK)) | BigInt(v);
   }
   const totalBits = id.length * BITS_CHUNK;
-  const nNibbles = Math.floor(totalBits / 4);
-  const bigShifted = big >> BigInt(totalBits - nNibbles * 4);
-  let b = bigShifted;
-  const nibbles = new Array(nNibbles);
-  for (let i = nNibbles - 1; i >= 0; i--) {
+  const nNibblesTotal = Math.floor(totalBits / 4);
+  if (nNibblesTotal < 4) return null;
+  const bigShifted = big >> BigInt(totalBits - nNibblesTotal * 4);
+  const durationNibbles = 4;
+  const durationMask = 0xFFFFn;
+  const durationCode = Number((bigShifted >> BigInt((nNibblesTotal - durationNibbles) * 4)) & durationMask);
+  const nSignalNibbles = nNibblesTotal - durationNibbles;
+  const signalShifted = bigShifted & ((1n << BigInt(nSignalNibbles * 4)) - 1n);
+  let b = signalShifted;
+  const nibbles = new Array(nSignalNibbles);
+  for (let i = nSignalNibbles - 1; i >= 0; i--) {
     nibbles[i] = Number(b & 0xFn);
     b >>= 4n;
   }
-  return nibbles;
+  return { nibbles, duration: decodeDuration(durationCode) };
 }
 
 function drawWave(samples, sr) {
@@ -326,10 +342,10 @@ function onQualityChange() {
 function rebuildFromSamples(samples, sr) {
   const fps = framesPerSecond();
   const nibbles = samplesToNibbles(samples, sr, fps);
-  currentId = nibblesToId(nibbles);
+  srcDuration = samples.length / sr;
+  currentId = nibblesToId(nibbles, srcDuration);
   showFullId = false;
   updateIdDisplay();
-  srcDuration = samples.length / sr;
   const restored = nibblesToSamples(nibbles, sr, srcDuration);
   playSamples(restored, sr,
     'Сжато: ' + samples.length + ' сэмплов → ' + nibbles.length + ' кадров → ' +
@@ -342,7 +358,7 @@ function randomId() {
   const nFrames = Math.max(1, Math.round(duration * fps));
   const nibbles = new Array(nFrames);
   for (let i = 0; i < nFrames; i++) nibbles[i] = Math.floor(Math.random() * 16);
-  currentId = nibblesToId(nibbles);
+  currentId = nibblesToId(nibbles, duration);
   showFullId = false;
   updateIdDisplay();
   const samples = nibblesToSamples(nibbles, srcSr || 8000, duration);
@@ -351,14 +367,15 @@ function randomId() {
 
 function nextId() {
   if (!currentId) { randomId(); return; }
-  const nibbles = idToNibbles(currentId);
-  if (!nibbles) { setStatus('Некорректный ID'); return; }
+  const parsed = idToNibbles(currentId);
+  if (!parsed) { setStatus('Некорректный ID'); return; }
+  const nibbles = parsed.nibbles;
   let i = nibbles.length - 1;
   while (i >= 0) {
     if (nibbles[i] < 15) { nibbles[i]++; break; }
     nibbles[i] = 0; i--;
   }
-  currentId = nibblesToId(nibbles);
+  currentId = nibblesToId(nibbles, parsed.duration);
   showFullId = false;
   updateIdDisplay();
   playCurrent();
@@ -366,14 +383,15 @@ function nextId() {
 
 function prevId() {
   if (!currentId) { randomId(); return; }
-  const nibbles = idToNibbles(currentId);
-  if (!nibbles) { setStatus('Некорректный ID'); return; }
+  const parsed = idToNibbles(currentId);
+  if (!parsed) { setStatus('Некорректный ID'); return; }
+  const nibbles = parsed.nibbles;
   let i = nibbles.length - 1;
   while (i >= 0) {
     if (nibbles[i] > 0) { nibbles[i]--; break; }
     nibbles[i] = 15; i--;
   }
-  currentId = nibblesToId(nibbles);
+  currentId = nibblesToId(nibbles, parsed.duration);
   showFullId = false;
   updateIdDisplay();
   playCurrent();
@@ -393,16 +411,11 @@ function findById() {
 
 function playCurrent() {
   if (!currentId) { setStatus('Нет ID'); return; }
-  const nibbles = idToNibbles(currentId);
-  if (!nibbles) { setStatus('Некорректный ID'); return; }
-  let duration = srcDuration;
-  if (!duration) {
-    const fps = framesPerSecond();
-    duration = nibbles.length / fps;
-  }
+  const parsed = idToNibbles(currentId);
+  if (!parsed || parsed.nibbles.length === 0) { setStatus('Некорректный ID'); return; }
   const sr = srcSr || 8000;
-  const samples = nibblesToSamples(nibbles, sr, duration);
-  playSamples(samples, sr, 'ID: ' + nibbles.length + ' кадров (' + currentId.length + ' символов)');
+  const samples = nibblesToSamples(parsed.nibbles, sr, parsed.duration);
+  playSamples(samples, sr, 'ID: ' + parsed.nibbles.length + ' кадров (' + currentId.length + ' символов), ' + parsed.duration.toFixed(1) + ' с');
 }
 
 async function processAudioFile(file) {
